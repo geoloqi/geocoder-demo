@@ -1,0 +1,138 @@
+
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Leaflet Quick Start Guide Example</title>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="lib/leaflet.css" />
+  <link rel="stylesheet" href="lib/bootstrap.min.css" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+  <div id="wrap">
+    <div id="map"></div>
+  </div>
+
+  <div id="panel">
+    <h3>Geocoder Demo</h3>
+    <div class="titlearea"><span id="titleMessage" class="title-message">Find a Place</span></div>
+    <div class="controls">
+      <div class="buttons"> 
+        <input id="searchInput" type="text" value="Portland, OR">
+        <label class="checkbox">
+          <input id="useMapExtent" type="checkbox" checked="checked"> Search in map only
+        </label> 
+        <button class="btn btn-primary btn-small" id="search">Go</button>
+        <button class="btn btn-small" id="clear" onclick="clearFindGraphics();">Clear</button>
+      </div>
+    </div>
+  </div>
+
+
+  <script src="lib/jquery-1.9.1.min.js"></script>
+  <script src="lib/leaflet.js"></script>
+  <script>
+    // Define the paths to the Esri tile server and geocoding server
+    var basemap = 'http://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}';
+
+    // Default geocoder searches the whole world
+    var defaultGeocoder = 'http://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer/find?text={search}&maxLocations=20&f=pjson&callback=?';
+
+    // Map geocoder searches within the visible extent of the map
+    var mapGeocoder = 'http://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer/find?text={search}&location={location}&distance={distance}&bbox={bbox}&maxLocations=50&f=pjson&callback=?';
+
+    // Center the map somewhere
+    var center = [45.5165, -122.6764];
+
+    // Set up the map
+    var map = L.map('map').setView(center, 14);
+
+    // Define our custom icon
+    var myIcon = L.icon({
+        iconUrl: '/images/large-purple-cutout.png',
+        iconSize: [39, 50],
+        iconAnchor: [19, 50],
+        popupAnchor: [0, -50]
+    });
+
+    // Set up the tile layer with Esri tiles
+    L.tileLayer(basemap, {
+      maxZoom: 18,
+      attribution: 'Map data powered by <a href="http://esri.com">Esri</a>'
+    }).addTo(map);
+
+    var searchResults = [];
+
+    $(function(){
+      $("#search").click(function(){
+        $(searchResults).each(function(i, result){
+          result.closePopup();
+          result.unbindPopup();
+          map.removeLayer(result);
+        });
+        searchResults = [];
+
+        var useMapExtent = $("#useMapExtent").is(":checked");
+
+        var searchURL;
+        if(useMapExtent == true) {
+          var searchBounds = map.getBounds();
+          // Calculate the search radius as half of the span from bottom left to top right corner
+          var searchDistance = Math.round(searchBounds.getSouthWest().distanceTo(searchBounds.getNorthEast()) / 2);
+          var searchExtent = searchBounds.pad(0.10).toBBoxString();
+
+          searchURL = mapGeocoder.replace('{search}', encodeURIComponent($("#searchInput").val())).replace('{location}', map.getCenter().lng+","+map.getCenter().lat).replace('{distance}', searchDistance).replace('{bbox}', searchExtent);
+        } else {
+          searchURL = defaultGeocoder.replace('{search}', encodeURIComponent($("#searchInput").val()));
+        }
+        console.debug(searchURL);
+        $("#search").html('<img src="images/loading.gif" />');
+
+        $.getJSON(searchURL, function(data){
+          $("#search").html('Go');
+
+          // If no results were found...
+          if(data.locations.length == 0) {
+            $("#searchInput").addClass("error");
+            setTimeout(function(){
+              $("#searchInput").removeClass("error");
+            }, 500);
+          } else {
+            var bounds = new L.LatLngBounds();
+
+            // Add each result to the map
+            $(data.locations).each(function(i, result){
+              var location = [result.feature.geometry.y, result.feature.geometry.x];
+              searchResults.push(L.marker(location, {
+                icon: myIcon
+              }).addTo(map).bindPopup(result.name));
+
+              // Extend the bounds to fit the point, and the bounds of the result
+              bounds.extend(location);
+              bounds.extend([result.extent.ymin, result.extent.xmin]);
+              bounds.extend([result.extent.ymax, result.extent.xmax]);
+            });
+
+            // Open the first result popup
+            searchResults[0].openPopup();
+
+            if(useMapExtent == false) {
+              // Fit the map to the bounds
+              map.fitBounds(bounds);
+            }
+          }
+        });
+
+      });
+      $("#searchInput").keydown(function(e){
+        if(e.keyCode == 13) {
+          $("#search").click();
+        }
+      });
+    });
+
+  </script>
+</body>
+</html>
